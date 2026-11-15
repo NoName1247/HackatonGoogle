@@ -4,6 +4,7 @@ and Deterministic Handover Score Engine (English Edition).
 """
 
 from __future__ import annotations
+import os
 
 import asyncio
 import json
@@ -35,6 +36,7 @@ from models_and_schemas import (
     ChapterExtractionCache,
     ChapterMeatSchema,
     ClaimStatus,
+    DeepHarvestAuditSchema,
     DiscardedApproachExtract,
     DomainEnvType,
     DomainProfile,
@@ -124,7 +126,7 @@ async def _call_llm_structured(
 
     candidates: list[tuple[str, str, DistributedCircuitBreaker]] = []
     if settings.GEMINI_API_KEY and await llm_primary_cb.is_available():
-        candidates.append(("gemini/gemini-2.5-flash", settings.GEMINI_API_KEY, llm_primary_cb))
+        candidates.append((os.getenv("GEMINI_MODEL", "gemini/gemini-3.8-flash"), settings.GEMINI_API_KEY, llm_primary_cb))
     if settings.OPENAI_API_KEY and await llm_fallback_cb.is_available():
         candidates.append(("openai/gpt-4o-mini", settings.OPENAI_API_KEY, llm_fallback_cb))
 

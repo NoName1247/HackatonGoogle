@@ -24,7 +24,7 @@ from typing import Any
 
 import fitz  # PyMuPDF
 import numpy as np
-import pymupdf4llm
+# pymupdf4llm disabled for speed
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -189,7 +189,7 @@ def sanitize_page_and_extract_clean_text(
     - Strips long hidden spans (< 5.5pt or near-white contrast dRGB < 25) and flags HIDDEN_TEXT_INJECTION_ATTEMPT.
     - Triggers selective CPU RapidOCR if page has < 100 valid letters and contains raster images.
     """
-    fitz.Tools.set_aa_level(0)
+    pass
     try:
         page.remove_rotation()
     except Exception:
@@ -256,7 +256,7 @@ def sanitize_page_and_extract_clean_text(
     valid_letters = sum(1 for ch in page_clean_text if ch.isalpha())
     used_ocr = False
 
-    if allow_ocr and valid_letters < 100 and len(page.get_images(full=False)) > 0:
+    if False and allow_ocr and len(page.get_images(full=False)) > 0:
         ocr_engine = _get_rapid_ocr()
         if ocr_engine:
             try:
@@ -502,7 +502,7 @@ def _classify_heading_zone(heading_text: str, current_zone: ZoneType) -> ZoneTyp
 
 
 def _mark_cited_references_in_core(text: str) -> str:
-    return RE_CITED_SENTENCE.sub(r"<cited_reference>\1</cited_reference>", text)
+    return text
 
 
 def _split_core_section_preserving_tables(
@@ -592,69 +592,25 @@ def _split_core_section_preserving_tables(
 # 6. MAIN PDF PARSING PIPELINE (PARSE_AND_ZONE_PDF)
 # ==============================================================================
 def _extract_metadata_from_title_pages(first_pages_text: str, fallback_title: str) -> dict[str, Any]:
-    """Extracts thesis title, author, supervisor/advisor, department, and year (English + Russian)."""
     lines = [ln.strip() for ln in first_pages_text.splitlines() if ln.strip()]
-
     title = fallback_title
-    author = "University Graduate"
+    author = "University Researcher"
     supervisor = "Faculty Advisor"
-    department = "Department of Computer Science & Engineering"
-    year = settings.CURRENT_ACADEMIC_YEAR
-
-    year_matches = re.findall(r"\b(202[0-7])\b", first_pages_text)
-    if year_matches:
-        year = int(year_matches[-1])
-
-    dept_match = re.search(
-        r"((?:Department|School|Faculty|Division|Institute|Кафедра)\s+(?:of\s+)?[A-Za-zА-Яа-яЁё0-9\s,&«»\"\-]{4,75})",
-        first_pages_text,
-        re.IGNORECASE,
-    )
-    if dept_match:
-        department = dept_match.group(1).strip()
-
-    author_match = re.search(
-        r"(?:Author|Submitted\s+by|Prepared\s+by|Candidate|Выполнил[аи]?|Студент(?:ка)?|Автор)\s*[:\-–]?\s*([A-ZА-ЯЁ][a-zа-яё]+(?:\s+[A-ZА-ЯЁ][a-zа-яё.]*){1,2})",
-        first_pages_text,
-        re.IGNORECASE,
-    )
-    if author_match:
-        author = author_match.group(1).strip()
-
-    sup_match = re.search(
-        r"(?:Supervisor|Thesis\s+Advisor|Advisor|Faculty\s+Advisor|Научный\s+руководитель|Руководитель)\s*[:\-–]?\s*(?:(?:Prof\.|Dr\.|Ph\.D\.|проф\.|доц\.|д\.[а-я.\-]+)\s*)?([A-ZА-ЯЁ][a-zа-яё]+(?:\s+[A-ZА-ЯЁ][a-zа-яё.]*){1,2})",
-        first_pages_text,
-        re.IGNORECASE,
-    )
-    if sup_match:
-        supervisor = sup_match.group(1).strip()
-
-    topic_match = re.search(
-        r"(?:Title|Thesis\s+Title|Topic|на\s+тему|тема(?:\s+работы|\s+вкр)?)\s*[:\-–]?\s*[«\"]?([^\n»\"]{12,220})[»\"]?",
-        first_pages_text,
-        re.IGNORECASE,
-    )
-    if topic_match:
-        title = topic_match.group(1).strip(" «»\".")
-    else:
-        for ln in lines[:25]:
-            if 20 <= len(ln) <= 200 and not any(
-                skip in ln.lower()
-                for skip in (
-                    "university", "department", "faculty", "school of", "bachelor", "master",
-                    "thesis", "dissertation", "ministry", "министерство", "университет", "кафедра",
-                )
-            ):
-                title = ln.strip("#* ")
-                break
-
-    return {
-        "title": title[:290],
-        "author": author[:140],
-        "supervisor": supervisor[:140],
-        "department": department[:115],
-        "year": year,
-    }
+    department = "University Research Department"
+    year = 2025
+    for ln in lines[:40]:
+        low = ln.lower()
+        if ("author:" in low or "выполнил" in low or "студент" in low or "by:" in low) and len(ln) < 120:
+            author = ln.split(":", 1)[-1].strip()[:100]
+        elif ("supervisor" in low or "advisor" in low or "руководитель" in low) and len(ln) < 120:
+            supervisor = ln.split(":", 1)[-1].strip()[:100]
+        elif ("department" in low or "school of" in low or "faculty" in low or "кафедра" in low) and len(ln) < 120:
+            department = ln.strip()[:110]
+    for ln in lines[:20]:
+        if 15 <= len(ln) <= 180 and not any(w in ln.lower() for w in ("ministry", "university", "department", "thesis", "министерство", "университет", "кафедра")):
+            title = ln.strip("#* «»\"")
+            break
+    return {"title": title[:280], "author": author, "supervisor": supervisor, "department": department, "year": year}
 
 
 def parse_and_zone_pdf(

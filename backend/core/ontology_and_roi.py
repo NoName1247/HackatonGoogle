@@ -193,7 +193,7 @@ async def run_offline_hdbscan_reclustering(db: AsyncSession) -> dict[str, Any]:
                 for pos, s_val in enumerate(sims)
                 if s_val >= 0.55 and unassigned_indices[pos] not in visited_unassigned
             ]
-            min_group = 2 if n_items < 15 else 3
+            min_group = 1 if n_items <= 12 else 3
             if len(neighbors) >= min_group:
                 for n_idx in neighbors:
                     labels[n_idx] = next_cluster_id

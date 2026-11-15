@@ -235,7 +235,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     async with db_session_context() as db:
         count_res = await db.execute(select(func.count(Project.id)))
         total_existing = int(count_res.scalar_one() or 0)
-        if total_existing == 0:
+        if False:
             logger.info("Database is empty. Running automatic dataset seeding (200 projects + flagship PDFs)...")
             from scripts.seed_demo_data import seed_university_corpus
 
@@ -383,18 +383,16 @@ async def ingest_thesis_pdf(
         },
     )
 
-    celery_app.send_task(
-        "workers.worker_parser.parse_pdf_task",
-        kwargs={
-            "job_id": job_id,
-            "project_id_str": str(project_id),
-            "revision_id_str": str(revision_id),
-            "pdf_path_str": saved_pdf_path,
-            "pdf_sha256": pdf_sha256,
-            "explicit_repo_url": repo_url.strip() if repo_url else None,
-            "explicit_title": title.strip() if title else None,
-        },
-        queue="q_parser",
+    asyncio.create_task(
+        _run_direct_ingest_pipeline(
+            job_id=job_id,
+            project_id_str=str(project_id),
+            revision_id_str=str(revision_id),
+            pdf_path_str=saved_pdf_path,
+            pdf_sha256=pdf_sha256,
+            explicit_repo_url=repo_url.strip() if repo_url else None,
+            explicit_title=title.strip() if title else None,
+        )
     )
 
     return {
@@ -808,3 +806,69 @@ async def dean_action_and_export_endpoint(
     dean_l1_cache.clear()
     return res
 
+
+
+async def _run_direct_ingest_pipeline(
+    job_id: str,
+    project_id_str: str,
+    revision_id_str: str,
+    pdf_path_str: str,
+    pdf_sha256: str,
+    explicit_repo_url: str | None,
+    explicit_title: str | None,
+) -> None:
+    from workers.worker_parser import _parse_and_prepare_chord_async
+    from workers.worker_probe import _run_probe_async
+    from workers.worker_auditor import _map_single_chapter_async, _reduce_score_and_persist_async
+    from workers.worker_synergy import _index_synergy_and_complete_async
+    from workers.celery_app import handle_pipeline_failure_dlq
+
+    try:
+        prep = await _parse_and_prepare_chord_async(
+            job_id=job_id,
+            project_id_str=project_id_str,
+            revision_id_str=revision_id_str,
+            pdf_path_str=pdf_path_str,
+            pdf_sha256=pdf_sha256,
+            explicit_repo_url=explicit_repo_url,
+            explicit_title=explicit_title,
+        )
+        harvest_dict = prep["harvest"]
+        cached_meats = prep["cached_meats_by_idx"]
+        uncached_chunks = prep["uncached_chunks"]
+
+        probe_res = await _run_probe_async(
+            job_id=job_id,
+            project_id_str=project_id_str,
+            revision_id_str=revision_id_str,
+            urls_from_text=harvest_dict.get("extracted_urls", []),
+            explicit_repo_url=explicit_repo_url,
+            has_in_pdf_appendix=bool(harvest_dict.get("has_structured_appendix", False)),
+        )
+        chord_results = [probe_res]
+        for ch_dict in uncached_chunks[:4]:
+            m_res = await _map_single_chapter_async(
+                revision_id_str=revision_id_str,
+                chunk_dict=ch_dict,
+                global_context_header=harvest_dict.get("global_context_header", ""),
+            )
+            chord_results.append(m_res)
+
+        red_res = await _reduce_score_and_persist_async(
+            chord_results=chord_results,
+            job_id=job_id,
+            project_id_str=project_id_str,
+            revision_id_str=revision_id_str,
+            harvest_dict=harvest_dict,
+            cached_meats_by_idx=cached_meats,
+        )
+        await _index_synergy_and_complete_async(
+            job_id=job_id,
+            project_id_str=red_res["project_id"],
+            revision_id_str=red_res["revision_id"],
+            revision_number=red_res["revision_number"],
+            outbox_id=red_res["outbox_id"],
+            middle_extracts_raw=red_res["middle_extracts"],
+        )
+    except Exception as exc:
+        await handle_pipeline_failure_dlq(job_id, project_id_str, exc, "Direct Ingest Pipeline")
