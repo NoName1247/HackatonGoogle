@@ -1,460 +1,418 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import AuditDiffViewer from "@/components/AuditDiffViewer";
+import { useRouter } from "next/navigation";
 import {
   buildSampleDemoPdfFile,
   fetchAndSetProjectDetail,
   fetchProjectSynergy,
   fetchProjectsCatalog,
-  generateHandoverPackageApi,
   uploadThesisAndSubscribeSSE,
+  validatePdfFilePreflight,
 } from "@/lib/api_and_sse";
 import { useHorizonStore } from "@/lib/store";
+import { IconCheck, IconClose, IconFile, IconShield, IconSpinner, IconUpload } from "@/components/icons";
+import { formatScore100 } from "@/lib/format";
 
-export default function Mode1PreDefenseXRayPage() {
+const TOTAL_STEPS = 6;
+
+function stripStepPrefix(title: string): string {
+  return title.replace(/^Step \d+\/\d+:\s*/, "");
+}
+
+export default function CommissionMainPage() {
+  const router = useRouter();
   const {
-    activeRole,
     uploadPhase,
     progressPercent,
+    progressStep,
     progressTitle,
     progressHistory,
     uploadError,
-    activeProjectDetail,
-    activeSynergyGraph,
+    resetUploadState,
   } = useHorizonStore();
 
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [repoUrl, setRepoUrl] = useState<string>("https://github.com/example/weld-xray-seg");
-  const [thesisTitle, setThesisTitle] = useState<string>("");
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [repoUrl, setRepoUrl] = useState("");
+  const [thesisTitle, setThesisTitle] = useState("");
   const [catalogProjects, setCatalogProjects] = useState<any[]>([]);
-  const [packageModal, setPackageModal] = useState<any | null>(null);
-  const [loadingPackage, setLoadingPackage] = useState(false);
 
   useEffect(() => {
-    fetchProjectsCatalog({ limit: 15 }).then((items) => {
-      setCatalogProjects(items);
-      if (!useHorizonStore.getState().activeProjectDetail && items.length > 0) {
-        const firstId = items[0].project_id;
-        fetchAndSetProjectDetail(firstId);
-        fetchProjectSynergy(firstId);
-      }
-    });
+    fetchProjectsCatalog({ limit: 15 }).then(setCatalogProjects);
   }, []);
 
-  const handleSelectProject = async (pid: string) => {
-    await fetchAndSetProjectDetail(pid);
-    await fetchProjectSynergy(pid);
+  useEffect(() => {
+    if (uploadPhase === "COMPLETED") {
+      router.push("/dossier");
+    }
+  }, [uploadPhase, router]);
+
+  const onFileChange = async (file: File | null) => {
+    setFileError(null);
+    setSelectedFile(file);
+    if (file) {
+      const check = await validatePdfFilePreflight(file);
+      if (!check.valid) setFileError(check.error || "Файл не прошёл проверку.");
+    }
   };
 
-  const handleUploadSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedFile) return;
+    if (!selectedFile || fileError) return;
     await uploadThesisAndSubscribeSSE(selectedFile, repoUrl, thesisTitle);
-    const updated = await fetchProjectsCatalog({ limit: 15 });
-    setCatalogProjects(updated);
   };
 
-  const handleRunLiveDemoPdf = async () => {
+  const handleRunLiveDemo = async () => {
     const demoFile = buildSampleDemoPdfFile();
     setSelectedFile(demoFile);
+    setFileError(null);
     await uploadThesisAndSubscribeSSE(
       demoFile,
       "https://github.com/example/weld-xray-seg",
       "Automated Defect Segmentation in X-Ray Radiographs of Welded Joints"
     );
-    const updated = await fetchProjectsCatalog({ limit: 15 });
-    setCatalogProjects(updated);
   };
 
-  const handleGeneratePackage = async () => {
-    if (!activeProjectDetail?.project_id) return;
-    setLoadingPackage(true);
-    try {
-      const pkg = await generateHandoverPackageApi(activeProjectDetail.project_id);
-      setPackageModal(pkg);
-    } catch (err: any) {
-      alert(err?.message || "Failed to generate package");
-    } finally {
-      setLoadingPackage(false);
-    }
+  const handleSelectCatalogProject = async (pid: string) => {
+    if (!pid) return;
+    await fetchAndSetProjectDetail(pid);
+    await fetchProjectSynergy(pid);
+    router.push("/dossier");
   };
 
-  const passport = activeProjectDetail?.passport;
-  const scoring = passport?.scoring || {};
-  const verif = passport?.artifact_verification || {};
-  const audit = passport?.deep_harvest_audit || {};
-  const meta = passport?.meta || {};
-  const questions: string[] = audit?.commission_defense_questions || [];
-  const priorArt: any[] = audit?.prior_art_radar?.similar_past_projects || [];
-  const internalSynergy: any[] = activeSynergyGraph?.internal_matches || [];
+  const isBusy = uploadPhase === "PREFLIGHT" || uploadPhase === "UPLOADING" || uploadPhase === "STREAMING";
+
+  if (isBusy) {
+    return <ProgressScreen onCancel={resetUploadState} />;
+  }
 
   return (
-    <div className="space-y-6">
-      {/* Top Upload & Quick-Switch Bar */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <form
-          onSubmit={handleUploadSubmit}
-          className="lg:col-span-2 rounded-xl border border-slate-800 bg-slate-900/80 p-5 space-y-4"
-        >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h2 className="text-base font-bold text-white">
-                Pre-Defense Forensic PDF Harvester & Zero-Trust Repository Probe
-              </h2>
-              <p className="text-xs text-slate-400">
-                Full 100% page scan (no middle-chapter truncation), SHA-256 chapter cache & live Redis Streams SSE
-              </p>
+    <section className="screen">
+      <main className="wrap">
+        <div className="phead">
+          <div>
+            <div className="eyebrow">
+              <IconShield size={14} />
+              Комиссия · X-Ray
             </div>
-            <button
-              type="button"
-              onClick={handleRunLiveDemoPdf}
-              disabled={uploadPhase === "UPLOADING" || uploadPhase === "STREAMING"}
-              className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-xs font-semibold text-white shadow"
-            >
-              ⚡ Run 1-Click Live Demo PDF Audit
-            </button>
+            <h1 className="h1">X-Ray аудит диплома</h1>
+            <p className="sub">
+              Загрузите PDF — получите досье: оценки, разрывы между выводами и данными, проверку репозитория и 3
+              вопроса для защиты.
+            </p>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                THESIS PDF FILE (&le; 25MB, %PDF-1.x)
+        {uploadError && (
+          <div
+            className="card"
+            style={{ marginBottom: 20, borderColor: "rgba(248,113,113,.3)", background: "rgba(248,113,113,.05)" }}
+          >
+            <span className="c-er xs mono">{uploadError}</span>
+          </div>
+        )}
+
+        <div className="bento">
+          <form
+            onSubmit={handleSubmit}
+            className="card"
+            style={{ gridColumn: "span 8", gridRow: "span 2", display: "flex", flexDirection: "column", gap: 20 }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 14,
+                minHeight: 300,
+                border: "1.5px dashed rgba(var(--acr),.45)",
+                borderRadius: 16,
+                background: "rgba(var(--acr),.04)",
+                textAlign: "center",
+                padding: 32,
+              }}
+            >
+              <span className="ico ac" style={{ width: 56, height: 56, borderRadius: 16 }}>
+                <IconFile size={24} />
+              </span>
+              <span className="h2" style={{ overflowWrap: "anywhere" }}>
+                {selectedFile ? selectedFile.name : "Загрузите PDF диплома"}
+              </span>
+              <span className="wrapr" style={{ justifyContent: "center" }}>
+                {selectedFile && (
+                  <span className="chip">{(selectedFile.size / 1024 / 1024).toFixed(1)} МБ</span>
+                )}
+                {selectedFile && !fileError && (
+                  <span className="chip c-ok">
+                    <IconCheck size={13} />
+                    PDF проверен
+                  </span>
+                )}
+                {fileError && (
+                  <span className="chip c-er">
+                    <IconClose size={13} />
+                    {fileError}
+                  </span>
+                )}
+              </span>
+              <label htmlFor="pdf-input" className="btn btn-g" style={{ marginTop: 4 }}>
+                <IconUpload size={16} />
+                {selectedFile ? "Выбрать другой файл" : "Выбрать файл"}
               </label>
               <input
+                id="pdf-input"
                 type="file"
                 accept=".pdf,application/pdf"
-                onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
-                className="w-full text-xs text-slate-300 file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-slate-800 file:text-emerald-400 hover:file:bg-slate-700"
+                hidden
+                onChange={(e) => onFileChange(e.target.files?.[0] || null)}
               />
             </div>
-            <div>
-              <label className="block text-[11px] font-mono text-slate-400 mb-1">
-                REPOSITORY / DATASET URL (OPTIONAL)
-              </label>
+
+            <div className="field">
+              <label htmlFor="repo-input">Репозиторий / датасет (опционально)</label>
               <input
-                type="text"
+                id="repo-input"
+                className="inp"
+                type="url"
+                placeholder="https://github.com/…"
                 value={repoUrl}
                 onChange={(e) => setRepoUrl(e.target.value)}
-                placeholder="https://github.com/owner/repo or Zenodo/OSF"
-                className="w-full px-3 py-1.5 rounded bg-slate-950 border border-slate-800 text-xs text-slate-200"
               />
             </div>
-            <div className="flex items-end">
-              <button
-                type="submit"
-                disabled={!selectedFile || uploadPhase === "UPLOADING" || uploadPhase === "STREAMING"}
-                className="w-full py-2 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-xs font-bold text-white transition"
-              >
-                {uploadPhase === "UPLOADING" || uploadPhase === "STREAMING"
-                  ? `Auditing (${progressPercent}%)...`
-                  : "🔍 Run Full Zero-Trust Audit"}
+            <div className="field">
+              <label htmlFor="title-input">Название работы (опционально)</label>
+              <input
+                id="title-input"
+                className="inp"
+                type="text"
+                placeholder="Например, «Распознавание эмоций в речи…»"
+                value={thesisTitle}
+                onChange={(e) => setThesisTitle(e.target.value)}
+              />
+            </div>
+
+            <div className="row" style={{ gap: 8 }}>
+              <button type="submit" className="btn btn-p" disabled={!selectedFile || !!fileError}>
+                Загрузить и проанализировать
+                <IconCheck size={16} />
+              </button>
+              <button type="button" className="btn btn-g" onClick={handleRunLiveDemo}>
+                ⚡ 1-клик демо-аудит
               </button>
             </div>
-          </div>
+          </form>
 
-          {/* Live SSE Progress Bar */}
-          {uploadPhase !== "IDLE" && (
-            <div className="rounded-lg bg-slate-950 border border-slate-800 p-3 space-y-2">
-              <div className="flex items-center justify-between text-xs font-mono">
-                <span className="text-emerald-400">{progressTitle || "Processing..."}</span>
-                <span className="text-slate-300">{progressPercent}%</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-800 overflow-hidden">
-                <div
-                  className="h-full bg-emerald-500 transition-all duration-300"
-                  style={{ width: `${Math.min(100, Math.max(5, progressPercent))}%` }}
-                />
-              </div>
-              {uploadError && (
-                <div className="text-xs text-rose-400 font-mono bg-rose-950/40 p-2 rounded border border-rose-800">
-                  ⚠️ {uploadError}
-                </div>
-              )}
-              {progressHistory.length > 0 && (
-                <div className="max-h-24 overflow-y-auto space-y-1 pt-1 text-[11px] font-mono text-slate-400">
-                  {progressHistory.map((ev, idx) => (
-                    <div key={idx}>
-                      ✓ [{ev.percent}%] {ev.title}
-                    </div>
-                  ))}
-                </div>
-              )}
+          <section className="card" style={{ gridColumn: "span 4" }}>
+            <div className="ch">
+              <h2 className="lbl">Что произойдёт</h2>
+              <span className="xs fa">≈ 1 мин</span>
             </div>
-          )}
-        </form>
+            <ol className="ol" style={{ gap: 14 }}>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Парсинг PDF</div>
+                  <div className="xs fa">Текст по зонам, главы, поиск дубликатов</div>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Верификация артефактов</div>
+                  <div className="xs fa">5 проверок репозитория</div>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Аудит / извлечение паспорта</div>
+                  <div className="xs fa">Структурированный паспорт работы</div>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Скоринг и оценка</div>
+                  <div className="xs fa">Handover score, разрывы, вопросы</div>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Поиск синергий</div>
+                  <div className="xs fa">Связь с задачами других работ</div>
+                </div>
+              </li>
+              <li>
+                <div>
+                  <div className="tx sm" style={{ fontWeight: 500 }}>Готово</div>
+                  <div className="xs fa">Досье и вопросы для защиты</div>
+                </div>
+              </li>
+            </ol>
+          </section>
 
-        {/* Quick Selector for Flagship Theses Across All 5 University Profiles */}
-        <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-5 flex flex-col justify-between">
-          <div>
-            <h3 className="text-xs font-mono uppercase tracking-wider text-slate-400 mb-2">
-              Switch Inspected Thesis (5 University Profiles)
-            </h3>
-            <select
-              value={activeProjectDetail?.project_id || ""}
-              onChange={(e) => handleSelectProject(e.target.value)}
-              className="w-full px-3 py-2 rounded-lg bg-slate-950 border border-slate-700 text-xs text-slate-100 mb-3"
-            >
-              {catalogProjects.map((p) => (
-                <option key={p.project_id} value={p.project_id}>
-                  [{p.final_handover_score} pts | {p.domain_profile.split("_")[0]}] {p.title.slice(0, 62)}
-                </option>
+          <section className="card" style={{ gridColumn: "span 4" }}>
+            <h2 className="lbl" style={{ marginBottom: 12 }}>Проверим до отправки</h2>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+              {["Расширение .pdf", "Размер до 25 МБ", "Файл начинается с %PDF-", "Файл не пустой"].map((t) => (
+                <li key={t} className="row sm mu" style={{ gap: 10, minHeight: 28 }}>
+                  <IconCheck size={16} style={{ color: "var(--fa)" }} />
+                  {t}
+                </li>
               ))}
-            </select>
-            {passport && (
-              <div className="text-xs space-y-1 text-slate-300">
-                <div>
-                  <span className="text-slate-500">Department:</span> {meta.department}
-                </div>
-                <div>
-                  <span className="text-slate-500">Author / Advisor:</span> {meta.author} / {meta.supervisor}
-                </div>
-                <div>
-                  <span className="text-slate-500">Profile:</span>{" "}
-                  <span className="font-mono text-emerald-400">{meta.domain_profile}</span>
-                </div>
+            </ul>
+          </section>
+
+          {catalogProjects.length > 0 && (
+            <section className="card" style={{ gridColumn: "span 4" }}>
+              <h2 className="lbl" style={{ marginBottom: 12 }}>Открыть ранее проверенную работу</h2>
+              <div className="sel">
+                <select className="inp" defaultValue="" onChange={(e) => handleSelectCatalogProject(e.target.value)}>
+                  <option value="" disabled>
+                    Выбрать из {catalogProjects.length} проверенных…
+                  </option>
+                  {catalogProjects.map((p) => (
+                    <option key={p.project_id} value={p.project_id}>
+                      [{formatScore100(p.final_handover_score)}] {String(p.title).slice(0, 60)}
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleGeneratePackage}
-            disabled={loadingPackage || !passport}
-            className="mt-4 w-full py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-semibold text-emerald-300 transition"
-          >
-            {loadingPackage
-              ? "Generating Package..."
-              : "📦 Auto-Generate HANDOVER_PASSPORT.md & CITATION.cff"}
-          </button>
-        </div>
-      </div>
-
-      {/* Security & Anti-Plagiarism Banner */}
-      {(activeProjectDetail?.security_alert || activeProjectDetail?.plagiarism_alert) && (
-        <div className="rounded-xl border-2 border-rose-500 bg-rose-950/40 p-4 text-xs font-mono text-rose-200 space-y-1">
-          {activeProjectDetail.security_alert && (
-            <div className="font-bold">
-              🚨 SECURITY ALERT [{activeProjectDetail.security_alert}]: Hidden micro-font / white-on-white prompt injection attempt stripped by Math-Safe Visual Sanitizer!
-            </div>
-          )}
-          {activeProjectDetail.plagiarism_alert && (
-            <div className="font-bold">🚨 {activeProjectDetail.plagiarism_alert}</div>
+            </section>
           )}
         </div>
-      )}
-
-      {passport && (
-        <>
-          {/* Block 1: Handover Score Passport + Artifact Probe Checklist */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5 flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-mono uppercase text-slate-400">
-                    Deterministic Handover Score
-                  </span>
-                  <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-950 text-emerald-300 border border-emerald-700">
-                    {scoring.scoring_mode}
-                  </span>
-                </div>
-                <div className="text-4xl font-extrabold text-white tracking-tight my-2">
-                  {scoring.final_handover_score}{" "}
-                  <span className="text-lg font-normal text-slate-400">/ 100</span>
-                </div>
-                <div className="text-xs text-emerald-400 font-medium mb-4">{scoring.status}</div>
-
-                <div className="grid grid-cols-2 gap-2 text-xs font-mono bg-slate-950 p-3 rounded-lg border border-slate-800">
-                  <div>
-                    Code / Method: <span className="text-white">{scoring.raw_code_score}/25</span>{" "}
-                    <span className="text-slate-500">(×{scoring.time_decay_code})</span>
-                  </div>
-                  <div>
-                    Data Assets: <span className="text-white">{scoring.raw_data_score}/25</span>{" "}
-                    <span className="text-slate-500">(×{scoring.time_decay_data})</span>
-                  </div>
-                  <div>
-                    Validity Audit: <span className="text-white">{scoring.validity_score}/20</span>
-                  </div>
-                  <div>
-                    Horizon / Maturity:{" "}
-                    <span className="text-white">{scoring.roadmap_or_maturity_score}/30</span>
-                  </div>
-                </div>
-              </div>
-
-              {scoring.improvement_recipes?.length > 0 && (
-                <div className="mt-4 pt-3 border-t border-slate-800">
-                  <div className="text-[11px] font-mono uppercase text-amber-400 mb-1.5">
-                    Pre-Defense Score Booster Recipes:
-                  </div>
-                  <ul className="space-y-1 text-xs text-slate-300">
-                    {scoring.improvement_recipes.map((r: string, i: number) => (
-                      <li key={i}>• {r}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-
-            {/* Automated Artifact Probe Verification */}
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200">
-                  Automated Artifact Probe (Module 2)
-                </h3>
-                <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-slate-800 text-sky-300">
-                  {verif.probe_status}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 truncate mb-4">
-                Source: {verif.repo_url || "In-Document Empirical Tables & Appendices"}
-              </p>
-
-              <div className="space-y-2 text-xs font-mono">
-                {[
-                  { label: "Repository Alive (>5 non-empty files)", ok: verif.repo_alive },
-                  { label: "Environment Spec (requirements/Dockerfile >=15B)", ok: verif.has_dependencies },
-                  { label: "Clean Relative Paths & Executed .ipynb Cells", ok: verif.has_clean_paths },
-                  { label: "Verified Data / Weights (>250B, non-LFS pointer)", ok: verif.has_data_artifact },
-                  { label: "Open Academic License / University Archive", ok: verif.has_license },
-                ].map((flag, i) => (
-                  <div
-                    key={i}
-                    className="flex items-center justify-between p-2 rounded bg-slate-950 border border-slate-800"
-                  >
-                    <span className="text-slate-300">{flag.label}</span>
-                    <span className={flag.ok ? "text-emerald-400 font-bold" : "text-rose-400"}>
-                      {flag.ok ? "✓ PASS" : "✗ MISS"}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* 3 Razor-Sharp Questions for Examination Board (ГАК) */}
-            <div className="rounded-xl border border-indigo-500/40 bg-indigo-950/20 p-5">
-              <div className="text-xs font-mono font-bold uppercase text-indigo-300 mb-1">
-                {activeRole === "STUDENT"
-                  ? "🛡️ Prepare for Defense: 3 Questions the Board Will Ask You"
-                  : "🎯 3 Razor-Sharp Defense Questions for Examination Board (ГАК)"}
-              </div>
-              <p className="text-xs text-slate-400 mb-3">
-                Generated from the exact gap between the author&apos;s Conclusion and Chapters 2–3 tables
-              </p>
-              <div className="space-y-2.5">
-                {questions.map((q, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3 rounded-lg bg-slate-950/80 border border-indigo-900/60 text-xs text-slate-200 leading-relaxed"
-                  >
-                    <span className="font-bold text-indigo-400">Q{idx + 1}:</span> {q}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Block 2: Reality vs. Conclusion Gap + Future Work Diff Linter */}
-          <AuditDiffViewer passport={passport} />
-
-          {/* Block 3: Prior Art & Intra-University Solution Radar */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-slate-200 mb-1">
-                🔄 University Prior Art & Novelty Radar (Past 5 Years)
-              </h3>
-              <p className="text-xs text-slate-400 mb-3">
-                Detects overlapping theses defended across university departments to prevent reinventing the wheel
-              </p>
-              <div className="space-y-2.5">
-                {priorArt.length === 0 ? (
-                  <div className="text-xs text-slate-500 font-mono p-3 rounded bg-slate-950">
-                    No direct prior-art collisions detected in the archive.
-                  </div>
-                ) : (
-                  priorArt.map((pa, i) => (
-                    <div key={i} className="p-3 rounded-lg bg-slate-950 border border-slate-800 text-xs">
-                      <div className="font-semibold text-white">
-                        {pa.title} ({pa.year})
-                      </div>
-                      <div className="text-slate-400 text-[11px] mb-1">
-                        {pa.department} | Author: {pa.author}
-                      </div>
-                      <div className="text-amber-300 font-mono text-[11px]">{pa.similarity_note}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="rounded-xl border border-slate-800 bg-slate-900/70 p-5">
-              <h3 className="text-sm font-bold uppercase tracking-wider text-emerald-400 mb-1">
-                🎁 Ready-Made Intra-University Solutions for Your Bottlenecks
-              </h3>
-              <p className="text-xs text-slate-400 mb-3">
-                Asymmetric TRIZ match: Supply assets from adjacent departments that solve this thesis&apos;s Demand
-              </p>
-              <div className="space-y-2.5">
-                {internalSynergy.slice(0, 2).map((m, i) => (
-                  <div
-                    key={i}
-                    className="p-3 rounded-lg bg-emerald-950/20 border border-emerald-500/40 text-xs space-y-1"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-emerald-300">
-                        {Math.round(m.formula.synergy_score * 100)}% SYNERGY MATCH
-                      </span>
-                      <span className="font-mono text-[11px] text-slate-400">{m.donor_department}</span>
-                    </div>
-                    <div className="font-semibold text-white">{m.donor_title}</div>
-                    <div className="text-slate-300">
-                      <span className="text-emerald-400 font-mono">Supply:</span> {m.donor_supply_text}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Modal for Auto-Generated HANDOVER_PASSPORT.md & CITATION.cff */}
-      {packageModal && (
-        <div className="fixed inset-0 z-50 bg-black/75 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl max-w-4xl w-full max-h-[85vh] flex flex-col overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-              <h3 className="font-bold text-sm text-white">
-                Auto-Packaged Legacy Documentation (HANDOVER_PASSPORT.md & CITATION.cff)
-              </h3>
-              <button
-                type="button"
-                onClick={() => setPackageModal(null)}
-                className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800"
-              >
-                ✕ Close
-              </button>
-            </div>
-            <div className="p-5 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-4 text-xs font-mono">
-              <div>
-                <div className="text-emerald-400 font-bold mb-2">1. HANDOVER_PASSPORT.md</div>
-                <pre className="p-3 rounded bg-slate-950 border border-slate-800 whitespace-pre-wrap text-slate-200 max-h-96 overflow-y-auto">
-                  {packageModal.handover_passport_md}
-                </pre>
-              </div>
-              <div>
-                <div className="text-sky-400 font-bold mb-2">
-                  2. CITATION.cff (Academic Royalty Contract)
-                </div>
-                <pre className="p-3 rounded bg-slate-950 border border-slate-800 whitespace-pre-wrap text-slate-200 max-h-96 overflow-y-auto">
-                  {packageModal.citation_cff}
-                </pre>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      </main>
+    </section>
   );
 }
 
+function ProgressScreen({ onCancel }: { onCancel: () => void }) {
+  const { progressPercent, progressStep, progressTitle, progressHistory, currentJobId } = useHorizonStore();
+
+  const slots = Array.from({ length: TOTAL_STEPS }, (_, i) => i + 1);
+
+  return (
+    <section className="screen">
+      <main className="wrap">
+        <div className="phead">
+          <div>
+            <div className="eyebrow">
+              <IconShield size={14} />
+              Комиссия · X-Ray
+            </div>
+            <h1 className="h1">Анализ в процессе</h1>
+            <p className="sub">Можно не ждать на этой странице — досье откроется само, когда анализ закончится.</p>
+          </div>
+          <button type="button" className="btn btn-g" onClick={onCancel}>
+            <IconClose size={16} />
+            Отменить
+          </button>
+        </div>
+
+        <div className="bento">
+          <section className="card" style={{ gridColumn: "span 8" }}>
+            <div className="between" style={{ alignItems: "flex-end", flexWrap: "wrap" }}>
+              <div>
+                <div className="lbl">Общий прогресс</div>
+                <div className="num" style={{ fontSize: 64, lineHeight: 1.05, marginTop: 6 }}>
+                  {progressPercent}
+                  <span className="fa" style={{ fontSize: 32 }}>%</span>
+                </div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div className="sm mu">Шаг {progressStep} из {TOTAL_STEPS}</div>
+                <div className="h3" style={{ marginTop: 2 }}>{stripStepPrefix(progressTitle || "Запуск пайплайна…")}</div>
+              </div>
+            </div>
+            <div className="bar" style={{ height: 10, marginTop: 20 }}>
+              <i style={{ width: `${Math.max(2, progressPercent)}%`, background: "var(--ac)" }} />
+            </div>
+
+            <hr className="hl" />
+            <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
+              {slots.map((i) => {
+                const ev = progressHistory.find((e) => e.step === i);
+                const isActive = !ev && i === progressStep;
+                const isDone = !!ev;
+                const isPending = !ev && !isActive;
+                return (
+                  <li
+                    key={i}
+                    className="between"
+                    style={{
+                      padding: "12px 14px",
+                      borderRadius: 14,
+                      border: "1px solid transparent",
+                      background: isActive ? "var(--s2)" : undefined,
+                      borderColor: isActive ? "rgba(var(--acr),.3)" : undefined,
+                    }}
+                  >
+                    <div className="row" style={{ gap: 14 }}>
+                      <span
+                        className={isActive ? "ico ac" : "ico"}
+                        style={
+                          isDone
+                            ? { width: 32, height: 32, borderRadius: 10, background: "rgba(74,222,128,.1)", color: "var(--ok)" }
+                            : { width: 32, height: 32, borderRadius: 10 }
+                        }
+                      >
+                        {isDone ? (
+                          <IconCheck size={16} />
+                        ) : isActive ? (
+                          <IconSpinner size={16} />
+                        ) : (
+                          <span className="xs">{i}</span>
+                        )}
+                      </span>
+                      <div>
+                        <div className={isPending ? "fa" : "tx"} style={{ fontWeight: isDone ? 400 : 500 }}>
+                          {ev ? stripStepPrefix(ev.title) : isActive ? stripStepPrefix(progressTitle) : `Шаг ${i}`}
+                        </div>
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span className="chip c-ac">
+                        <span className="d" />
+                        идёт
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ol>
+          </section>
+
+          <div className="stack" style={{ gridColumn: "span 4" }}>
+            <section className="card">
+              <div className="row" style={{ gap: 12, marginBottom: 16 }}>
+                <span className="ico">
+                  <IconFile size={18} />
+                </span>
+                <div style={{ minWidth: 0 }}>
+                  <div className="h3" style={{ fontSize: 14 }}>PDF диплома</div>
+                  <div className="xs fa">проверка пройдена</div>
+                </div>
+              </div>
+              <dl className="kv">
+                <dt>Задача</dt>
+                <dd className="mono fa" style={{ fontSize: 12 }}>
+                  {currentJobId ? `job ${currentJobId.slice(0, 12)}…` : "—"}
+                </dd>
+              </dl>
+            </section>
+            <section className="card">
+              <div className="between">
+                <h2 className="lbl">Соединение</h2>
+                <span className="chip c-ok">
+                  <span className="d pulse" />
+                  В реальном времени
+                </span>
+              </div>
+              <p className="sm mu" style={{ marginTop: 12 }}>
+                Если связь прервётся, переподключимся автоматически. Прогресс не потеряется.
+              </p>
+            </section>
+          </div>
+        </div>
+      </main>
+    </section>
+  );
+}

@@ -3,21 +3,16 @@
 import React, { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts";
 
-interface DeanChartsProps {
-  treemapHierarchy: any[];
-  goldenReserveMatrix: any[];
-  onSelectCluster: (cluster: any) => void;
-  onSelectProjectBubble: (projectId: string) => void;
-}
-
-export default function DeanCharts({
+export function TreemapChart({
   treemapHierarchy,
-  goldenReserveMatrix,
   onSelectCluster,
-  onSelectProjectBubble,
-}: DeanChartsProps) {
+  height = 420,
+}: {
+  treemapHierarchy: any[];
+  onSelectCluster: (cluster: any) => void;
+  height?: number;
+}) {
   const treemapRef = useRef<HTMLDivElement | null>(null);
-  const bubbleRef = useRef<HTMLDivElement | null>(null);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -80,6 +75,25 @@ export default function DeanCharts({
     };
   }, [mounted, treemapHierarchy]);
 
+  return <div ref={treemapRef} style={{ width: "100%", height }} />;
+}
+
+export function GoldenBubbleChart({
+  goldenReserveMatrix,
+  onSelectProjectBubble,
+  height = 420,
+}: {
+  goldenReserveMatrix: any[];
+  onSelectProjectBubble: (projectId: string) => void;
+  height?: number;
+}) {
+  const bubbleRef = useRef<HTMLDivElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   useEffect(() => {
     if (!mounted || !bubbleRef.current) return;
     const chart = echarts.init(bubbleRef.current);
@@ -89,14 +103,7 @@ export default function DeanCharts({
     const activeFollowed: any[] = [];
 
     (goldenReserveMatrix || []).forEach((pt) => {
-      const item = [
-        pt.asset_value_x,
-        pt.horizon_score_y,
-        pt.final_handover_score,
-        pt.title,
-        pt.department,
-        pt.project_id,
-      ];
+      const item = [pt.asset_value_x, pt.horizon_score_y, pt.final_handover_score, pt.title, pt.department, pt.project_id];
       if (pt.is_pure_supply_donor) {
         goldStandardDonors.push(item);
       } else if (pt.has_active_followers) {
@@ -179,28 +186,5 @@ export default function DeanCharts({
     };
   }, [mounted, goldenReserveMatrix]);
 
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
-        <h3 className="text-sm font-bold text-white mb-1">
-          Widget 1: Systemic Bottleneck Heatmap (7 Macro-Categories → HDBSCAN Micro-Clusters)
-        </h3>
-        <p className="text-xs text-slate-400 mb-3">
-          Click any cluster to open the Executive Bottleneck ROI Calculator & Grant Generator
-        </p>
-        <div ref={treemapRef} className="w-full h-[360px]" />
-      </div>
-
-      <div className="rounded-xl border border-slate-800 bg-slate-900/80 p-4">
-        <h3 className="text-sm font-bold text-white mb-1">
-          Widget 2: “Golden Reserve” Matrix (Asset Value vs. Continuation Roadmap)
-        </h3>
-        <p className="text-xs text-slate-400 mb-3">
-          Red bubbles in the top-right corner are high-value theses not yet claimed by a successor
-        </p>
-        <div ref={bubbleRef} className="w-full h-[360px]" />
-      </div>
-    </div>
-  );
+  return <div ref={bubbleRef} style={{ width: "100%", height }} />;
 }
-

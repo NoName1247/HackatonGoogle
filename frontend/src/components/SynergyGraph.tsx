@@ -158,14 +158,17 @@ export default function SynergyGraph({
 
   if (!mounted) {
     return (
-      <div className="h-80 w-full rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center text-xs font-mono text-slate-500">
+      <div
+        className="xs mu mono"
+        style={{ height: 420, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)" }}
+      >
         Initializing Interactive Graph Engine...
       </div>
     );
   }
 
   return (
-    <div className="h-80 w-full rounded-xl border border-slate-800 bg-slate-950 overflow-hidden">
+    <div style={{ height: 420, width: "100%", background: "var(--bg)" }}>
       <ReactFlow nodes={nodes} edges={edges} fitView>
         <Background color="#1e293b" gap={18} />
         <Controls />
